@@ -1,0 +1,16 @@
+processed_data/
+videos/
+*.mp4
+*.avi
+*.mov
+*.flv
+*.wmv
+*.mkv
+*.db
+*.json
+*.csv
+*.jsonl
+*.jsonl.gz
+*.jsonl.gz.part
+*.jsonl.gz.part.tmp
+
