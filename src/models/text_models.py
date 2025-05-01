@@ -1,8 +1,12 @@
 import os
 import torch
-import whisper
+# Remove whisper import
+import whisper 
 import numpy as np
-from sentence_transformers import SentenceTransformer
+# Remove sentence_transformers import (not used in this file)
+# from sentence_transformers import SentenceTransformer
+# Add transformers import
+from transformers import pipeline 
 from .clip_model import CLIPModelManager
 
 class AudioTranscriber:
@@ -72,7 +76,8 @@ class TextEncoder:
         """
         # Usar a instância compartilhada do modelo CLIP
         self.clip_manager = CLIPModelManager.get_instance()
-        print(f"TextEncoder usando modelo CLIP compartilhado: {self.clip_manager.model_name}")
+        # Update print message to reflect the potentially different model
+        print(f"TextEncoder usando modelo compartilhado: {self.clip_manager.model_name} on device {self.clip_manager.device}")
     
     def encode_text(self, text):
         """
@@ -85,7 +90,8 @@ class TextEncoder:
             Embedding do texto como um array numpy.
         """
         # Processar o texto usando o processador CLIP
-        inputs = self.clip_manager.processor(text=text, return_tensors="pt", padding=True, truncation=True, max_length=77).to(self.clip_manager.device)
+        # Move inputs to the device the model manager determined
+        inputs = self.clip_manager.processor(text=text, return_tensors="pt", padding=True, truncation=True).to(self.clip_manager.device)
         
         # Usar o gerenciador para codificar
         return self.clip_manager.encode_text(inputs)

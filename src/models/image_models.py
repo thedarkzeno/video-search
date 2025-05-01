@@ -12,6 +12,8 @@ class ImageEncoder:
     def __init__(self):
         # Usar a instância compartilhada do modelo CLIP
         self.clip_manager = CLIPModelManager.get_instance()
+        # Update print message to reflect the potentially different model
+        print(f"ImageEncoder using shared model: {self.clip_manager.model_name} on device {self.clip_manager.device}")
     
     def encode_image(self, image):
         """
@@ -27,6 +29,7 @@ class ImageEncoder:
             image = Image.open(image).convert("RGB")
         
         # Processar a imagem
+        # Move inputs to the device the model manager determined
         inputs = self.clip_manager.processor(images=image, return_tensors="pt").to(self.clip_manager.device)
         
         # Usar o gerenciador para codificar
@@ -50,7 +53,7 @@ class ImageCaptioner:
     """
     Classe para gerar descrições de imagens.
     """
-    def __init__(self, model_name="VerboVision/llava-portuguese-base-instruct"):
+    def __init__(self, model_name="VerboVision/VerboVision-base"):
         from transformers import AutoProcessor, LlavaNextForConditionalGeneration
         
         self.device = "cuda" if torch.cuda.is_available() else "cpu"

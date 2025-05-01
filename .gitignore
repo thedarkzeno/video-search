@@ -1,5 +1,7 @@
 processed_data/
+new/
 videos/
+.gradio/
 *.mp4
 *.avi
 *.mov
@@ -13,4 +15,7 @@ videos/
 *.jsonl.gz
 *.jsonl.gz.part
 *.jsonl.gz.part.tmp
-
+*.pyc
+**/__pycache__/
+*.py[cod]
+*$py.class

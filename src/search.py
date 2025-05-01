@@ -177,75 +177,85 @@ class VideoSearch:
         formatted_results = []
         
         for result in results[:limit]:
-            # Obter o match_type do resultado original
-            match_type = result.get('match_type', 'unknown')
-            score = result.get('score', 0.0)
-            
-            if 'frame_id' in result:
-                # Resultado de busca por imagem
-                frame_id = result['frame_id']
+            # Verificar o tipo do resultado e tratá-lo adequadamente
+            if isinstance(result, tuple):
+                # Resultado da busca por embedding (FAISS)
+                # Formato esperado: (frame_id, score)
+                frame_id = result[0]
+                score = result[1]
+                match_type = 'embedding'
+            else:
+                # Resultado da busca por texto
+                match_type = result.get('match_type', 'unknown')
+                score = result.get('score', 0.0)
                 
-                # Obter informações do frame
-                conn = self.db_manager._get_connection()
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT kf.video_id, kf.timestamp, kf.frame_path, kf.description, v.file_path
-                    FROM key_frames kf
-                    JOIN videos v ON kf.video_id = v.id
-                    WHERE kf.id = ?
-                """, (frame_id,))
-                
-                row = cursor.fetchone()
-                conn.close()
-                
-                if row:
-                    video_id, timestamp, frame_path, description, video_path = row
+                if 'frame_id' in result:
+                    frame_id = result['frame_id']
+                elif 'transcription_id' in result:
+                    # Tratar transcrição
+                    transcription_id = result['transcription_id']
                     
-                    formatted_results.append({
-                        'type': 'frame',
-                        'video_id': video_id,
-                        'video_path': video_path,
-                        'frame_id': frame_id,
-                        'timestamp': timestamp,
-                        'frame_path': frame_path,
-                        'description': description,
-                        'score': score,
-                        'match_type': match_type
-                    })
-            
-            elif 'transcription_id' in result:
-                # Resultado de busca por texto/transcrição
-                transcription_id = result['transcription_id']
-                
-                # Obter informações da transcrição
-                conn = self.db_manager._get_connection()
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT at.video_id, at.start_time, at.end_time, at.text, v.file_path
-                    FROM audio_transcriptions at
-                    JOIN videos v ON at.video_id = v.id
-                    WHERE at.id = ?
-                """, (transcription_id,))
-                
-                row = cursor.fetchone()
-                conn.close()
-                
-                if row:
-                    video_id, start_time, end_time, text, video_path = row
+                    # Obter informações da transcrição
+                    conn = self.db_manager._get_connection()
+                    cursor = conn.cursor()
                     
-                    formatted_results.append({
-                        'type': 'transcription',
-                        'video_id': video_id,
-                        'video_path': video_path,
-                        'transcription_id': transcription_id,
-                        'start_time': start_time,
-                        'end_time': end_time,
-                        'text': text,
-                        'score': score,
-                        'match_type': match_type
-                    })
+                    cursor.execute("""
+                        SELECT at.video_id, at.start_time, at.end_time, at.text, v.file_path
+                        FROM audio_transcriptions at
+                        JOIN videos v ON at.video_id = v.id
+                        WHERE at.id = ?
+                    """, (transcription_id,))
+                    
+                    row = cursor.fetchone()
+                    conn.close()
+                    
+                    if row:
+                        video_id, start_time, end_time, text, video_path = row
+                        
+                        formatted_results.append({
+                            'type': 'transcription',
+                            'video_id': video_id,
+                            'video_path': video_path,
+                            'transcription_id': transcription_id,
+                            'start_time': start_time,
+                            'end_time': end_time,
+                            'text': text,
+                            'score': score,
+                            'match_type': match_type
+                        })
+                    
+                    continue
+                else:
+                    continue
+            
+            # Obter informações do frame
+            conn = self.db_manager._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT kf.video_id, kf.timestamp, kf.frame_path, kf.description, v.file_path
+                FROM key_frames kf
+                JOIN videos v ON kf.video_id = v.id
+                WHERE kf.id = ?
+            """, (frame_id,))
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                video_id, timestamp, frame_path, description, video_path = row
+                
+                formatted_results.append({
+                    'type': 'frame',
+                    'video_id': video_id,
+                    'video_path': video_path,
+                    'frame_id': frame_id,
+                    'timestamp': timestamp,
+                    'frame_path': frame_path,
+                    'description': description,
+                    'score': score,
+                    'match_type': match_type
+                })
         
         return formatted_results
     

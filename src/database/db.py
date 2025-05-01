@@ -5,6 +5,7 @@ import numpy as np
 import faiss
 import pickle
 from pathlib import Path
+import time
 
 class DBManager:
     def __init__(self, db_path="video_search.db", index_path="embeddings_index"):
@@ -40,9 +41,29 @@ class DBManager:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             file_path TEXT UNIQUE,
             duration REAL,
-            processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            processing_time_seconds REAL, 
+            frame_processing_time_seconds REAL, 
+            audio_processing_time_seconds REAL  
         )
         ''')
+        
+        # Add columns if they don't exist (for existing databases)
+        columns_to_add = {
+            'processing_time_seconds': 'REAL',
+            'frame_processing_time_seconds': 'REAL',
+            'audio_processing_time_seconds': 'REAL'
+        }
+        for col_name, col_type in columns_to_add.items():
+            try:
+                cursor.execute(f"ALTER TABLE videos ADD COLUMN {col_name} {col_type}")
+                print(f"Added '{col_name}' column to 'videos' table.")
+            except sqlite3.OperationalError as e:
+                # Ignore error if column already exists
+                if "duplicate column name" not in str(e).lower():
+                    print(f"Could not add column {col_name}: {e}") # Print other errors
+                    # Depending on the error, you might want to raise it
+                    # raise e
         
         # Tabela de frames principais
         cursor.execute('''
@@ -79,7 +100,7 @@ class DBManager:
                 self.id_mapping = pickle.load(f)
         else:
             # Dimensão do embedding (ajuste conforme o modelo usado)
-            embedding_dim = 1024
+            embedding_dim = 1152
             self.index = faiss.IndexFlatL2(embedding_dim)
             self.id_mapping = {}
     
@@ -385,3 +406,64 @@ class DBManager:
         combined_results.sort(key=lambda x: x['score'], reverse=True)
         
         return combined_results
+
+    def delete_key_frames_for_video(self, video_id):
+        """Deleta todos os key frames associados a um video_id."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            # First, get the IDs of frames to be deleted (optional, needed for FAISS cleanup)
+            # cursor.execute("SELECT id FROM key_frames WHERE video_id = ?", (video_id,))
+            # frame_ids_to_delete = [row[0] for row in cursor.fetchall()]
+            
+            # Delete from DB
+            cursor.execute("DELETE FROM key_frames WHERE video_id = ?", (video_id,))
+            conn.commit()
+            deleted_count = cursor.rowcount
+            print(f"Deleted {deleted_count} key frames for video ID {video_id}.")
+            
+            # TODO: Implement FAISS index removal if needed
+            # This requires finding the FAISS index IDs corresponding to frame_ids_to_delete
+            # and using self.index.remove_ids(...) which requires IndexIDMap or careful handling.
+            
+        except sqlite3.Error as e:
+            print(f"Database error deleting key frames for video ID {video_id}: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+
+    def delete_audio_transcriptions_for_video(self, video_id):
+        """Deleta todas as transcrições de áudio associadas a um video_id."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM audio_transcriptions WHERE video_id = ?", (video_id,))
+            conn.commit()
+            deleted_count = cursor.rowcount
+            print(f"Deleted {deleted_count} audio transcriptions for video ID {video_id}.")
+        except sqlite3.Error as e:
+            print(f"Database error deleting audio transcriptions for video ID {video_id}: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+
+    def update_video_processing_time(self, video_id, total_time, frame_time=None, audio_time=None):
+        """Atualiza os tempos de processamento (total, frames, áudio) de um vídeo específico."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                UPDATE videos 
+                SET processing_time_seconds = ?,
+                    frame_processing_time_seconds = ?,
+                    audio_processing_time_seconds = ?,
+                    processed_at = CURRENT_TIMESTAMP 
+                WHERE id = ?
+            ''', (total_time, frame_time, audio_time, video_id))
+            conn.commit()
+            print(f"Updated processing times for video ID {video_id} (Total: {total_time:.2f}s, Frames: {frame_time:.2f}s, Audio: {audio_time:.2f}s).")
+        except sqlite3.Error as e:
+            print(f"Database error updating processing times for video ID {video_id}: {e}")
+            conn.rollback() # Rollback on error
+        finally:
+            conn.close()

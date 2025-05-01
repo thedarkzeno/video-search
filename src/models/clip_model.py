@@ -1,55 +1,70 @@
 import torch
 import numpy as np
-from transformers import CLIPProcessor, CLIPModel
+# Change imports for SigLIP
+# from transformers import CLIPProcessor, CLIPModel
+from transformers import AutoProcessor, AutoModel
 
 class CLIPModelManager:
     """
-    Classe singleton para gerenciar uma única instância do modelo CLIP,
+    Classe singleton para gerenciar uma única instância do modelo Vision-Text (SigLIP),
     compartilhada entre os codificadores de imagem e texto.
     """
     _instance = None
     
     @classmethod
-    def get_instance(cls, model_name="adalbertojunior/clip-H-portuguese"):
+    # Update default model name to SigLIP
+    def get_instance(cls, model_name="google/siglip2-so400m-patch16-512"):
         """
-        Obtém a instância única do gerenciador de modelo CLIP.
+        Obtém a instância única do gerenciador de modelo.
         
         Args:
-            model_name: Nome do modelo CLIP a ser carregado.
+            model_name: Nome do modelo Vision-Text a ser carregado (Hugging Face Hub).
             
         Returns:
-            Instância do gerenciador de modelo CLIP.
+            Instância do gerenciador de modelo.
         """
         if cls._instance is None:
             cls._instance = cls(model_name)
+        # Ensure the instance uses the requested model if already initialized with a different one
+        elif cls._instance.model_name != model_name:
+             print(f"Warning: Existing instance uses {cls._instance.model_name}. Reinitializing with {model_name}.")
+             cls._instance = cls(model_name)
         return cls._instance
     
     def __init__(self, model_name):
         """
-        Inicializa o gerenciador de modelo CLIP.
+        Inicializa o gerenciador de modelo.
         
         Args:
-            model_name: Nome do modelo CLIP a ser carregado.
+            model_name: Nome do modelo a ser carregado.
         """
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Loading CLIP model '{model_name}' on device: {self.device}")
+        # Use device_map="auto" for automatic device placement
+        # self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Loading Vision-Text model '{model_name}' using device_map='auto'")
         
-        self.model = CLIPModel.from_pretrained(model_name).to(self.device)
-        self.processor = CLIPProcessor.from_pretrained(model_name)
+        # Load SigLIP model and processor
+        self.model = AutoModel.from_pretrained(model_name, device_map="auto").eval()
+        self.processor = AutoProcessor.from_pretrained(model_name)
         self.model_name = model_name
+        # Store the device the model is actually using
+        self.device = self.model.device
+        print(f"Model {model_name} loaded on device: {self.device}")
     
-    def encode_image(self, image):
+    def encode_image(self, image_inputs):
         """
         Codifica uma imagem em um embedding.
         
         Args:
-            image: Imagem processada pelo processador CLIP.
+            image_inputs: Imagem processada pelo processador.
             
         Returns:
             Embedding da imagem como um array numpy.
         """
+        # Ensure inputs are on the correct device (redundant if handled in caller? Check caller)
+        # image_inputs = {k: v.to(self.device) for k, v in image_inputs.items()}
         with torch.no_grad():
-            outputs = self.model.get_image_features(**image)
+            # Use get_image_features for SigLIP/CLIP models
+            outputs = self.model.get_image_features(**image_inputs)
         
         # Normalizar o embedding
         embedding = outputs.cpu().numpy()[0]
@@ -62,12 +77,15 @@ class CLIPModelManager:
         Codifica um texto em um embedding.
         
         Args:
-            text_inputs: Texto processado pelo processador CLIP.
+            text_inputs: Texto processado pelo processador.
             
         Returns:
             Embedding do texto como um array numpy.
         """
+        # Ensure inputs are on the correct device
+        # text_inputs = {k: v.to(self.device) for k, v in text_inputs.items()}
         with torch.no_grad():
+            # Use get_text_features for SigLIP/CLIP models
             text_features = self.model.get_text_features(**text_inputs)
         
         # Converter para numpy e normalizar
@@ -87,4 +105,5 @@ class CLIPModelManager:
         Returns:
             Similaridade de cosseno entre os embeddings.
         """
+        # Dot product of normalized embeddings is cosine similarity
         return np.dot(embedding1, embedding2) 

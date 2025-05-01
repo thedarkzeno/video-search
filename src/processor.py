@@ -4,6 +4,7 @@ import numpy as np
 import tempfile
 from pathlib import Path
 from datetime import datetime
+import time  # Import the time module
 
 from src.database.db import DBManager
 from src.models.image_models import ImageEncoder, ImageCaptioner
@@ -61,6 +62,7 @@ class VideoProcessor:
     def process_video(self, video_path):
         """
         Processa um vídeo completo: extrai frames principais, gera descrições e transcreve áudio.
+        Calcula e armazena o tempo de processamento.
         
         Args:
             video_path: Caminho para o arquivo de vídeo.
@@ -68,35 +70,69 @@ class VideoProcessor:
         Returns:
             ID do vídeo no banco de dados.
         """
-        print(f"Processando vídeo: {video_path}")
+        start_time = time.time()  # Record start time
+        print(f"Iniciando processamento do vídeo: {video_path}")
         
-        # Verificar se o vídeo existe
-        if not os.path.exists(video_path):
-            raise FileNotFoundError(f"Vídeo não encontrado: {video_path}")
-        
-        # Abrir o vídeo
-        video = cv2.VideoCapture(video_path)
-        if not video.isOpened():
-            raise ValueError(f"Não foi possível abrir o vídeo: {video_path}")
-        
-        # Obter informações do vídeo
-        fps = video.get(cv2.CAP_PROP_FPS)
-        frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-        duration = frame_count / fps
-        
-        # Adicionar vídeo ao banco de dados
-        video_id = self.db_manager.add_video(video_path, duration)
-        
-        # Extrair frames principais
-        key_frames = self._extract_key_frames(video, video_id, fps)
-        
-        # Extrair e transcrever áudio
-        self._extract_and_transcribe_audio(video_path, video_id)
-        
-        video.release()
-        
-        print(f"Processamento concluído. Frames principais: {len(key_frames)}")
-        return video_id
+        video_id = None # Initialize video_id
+        try:
+            # Verificar se o vídeo existe
+            if not os.path.exists(video_path):
+                raise FileNotFoundError(f"Vídeo não encontrado: {video_path}")
+            
+            # Abrir o vídeo
+            video = cv2.VideoCapture(video_path)
+            if not video.isOpened():
+                raise ValueError(f"Não foi possível abrir o vídeo: {video_path}")
+            
+            # Obter informações do vídeo
+            fps = video.get(cv2.CAP_PROP_FPS)
+            frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+            # Handle potential division by zero or invalid fps
+            duration = frame_count / fps if fps > 0 else 0 
+            
+            # Adicionar vídeo ao banco de dados (sem tempo de processamento ainda)
+            video_id = self.db_manager.add_video(video_path, duration)
+            if video_id is None: # Check if video was added successfully
+                 raise Exception("Failed to add video to database.")
+            
+            # --- Limpar dados antigos antes de reprocessar ---
+            print(f"Cleaning up previous data for video ID: {video_id}...")
+            self.db_manager.delete_key_frames_for_video(video_id)
+            self.db_manager.delete_audio_transcriptions_for_video(video_id)
+            # Note: Associated frame files and audio file are not deleted here, only DB entries.
+            # Note: FAISS index entries are not removed by the current DB methods.
+            # ------------------------------------------------
+            
+            # Extrair frames principais (medir tempo)
+            frame_start_time = time.time()
+            key_frames = self._extract_key_frames(video, video_id, fps)
+            frame_time = time.time() - frame_start_time
+            print(f"Frame extraction/description took {frame_time:.2f} seconds.")
+            
+            # Extrair e transcrever áudio (medir tempo)
+            audio_start_time = time.time()
+            self._extract_and_transcribe_audio(video_path, video_id)
+            audio_time = time.time() - audio_start_time
+            print(f"Audio extraction/transcription took {audio_time:.2f} seconds.")
+            
+            video.release()
+
+            # Calculate total processing time 
+            total_processing_time = time.time() - start_time
+            print(f"Processamento total concluído em {total_processing_time:.2f} segundos. Frames principais: {len(key_frames)}")
+            
+            # Atualizar os tempos de processamento no banco de dados
+            self.db_manager.update_video_processing_time(video_id, total_processing_time, frame_time, audio_time)
+            
+            return video_id
+            
+        except Exception as e:
+             # If an error occurs after video_id is assigned, maybe log it? 
+             # For now, just print and re-raise or handle as appropriate
+             print(f"Erro durante o processamento do vídeo {video_path}: {e}")
+             # Optionally cleanup partial data or re-raise the exception
+             # raise e 
+             return None # Or indicate failure differently
     
     def get_db_path(self):
         """
@@ -218,7 +254,7 @@ class VideoProcessor:
             self.db_manager.add_audio_transcription(video_id, start_time, end_time, text)
             
             # Opcional: Codificar o texto e armazenar o embedding
-            text_embedding = self.text_encoder.encode_text(text)
+            # text_embedding = self.text_encoder.encode_text(text)
             # Aqui você poderia armazenar o embedding do texto se necessário
             
         print(f"Áudio transcrito: {len(segments)} segmentos")
